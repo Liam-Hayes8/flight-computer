@@ -1,0 +1,28 @@
+# Rename this file to .gitignore at the repo root.
+# Note: KEEP the .ioc file and CMakeLists.txt tracked — they define the project.
+
+# CMake build output
+firmware/build/
+CMakeCache.txt
+CMakeFiles/
+
+# Build artifacts
+*.o
+*.d
+*.elf
+*.map
+*.bin
+*.hex
+*.list
+
+# VS Code local settings (keep launch.json/tasks.json if you want them shared)
+.vscode/ipch/
+
+# Python (ground station, Phase 2)
+__pycache__/
+*.pyc
+.venv/
+
+# OS noise
+Thumbs.db
+.DS_Store
