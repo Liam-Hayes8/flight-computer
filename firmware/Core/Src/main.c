@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,7 +96,20 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  BSP_LED_Init(LED2);
+  setvbuf(stdout, NULL, _IONBF, 0);
+  printf("\r\nflight-computer boot\r\n");
+  printf("I2C scan: knocking on 0x08-0x77...\r\n");
+  uint8_t found = 0;
+  for (uint8_t addr = 0x08; addr <= 0x77; addr++)
+  {
+    if (HAL_I2C_IsDeviceReady(&hi2c1, addr << 1, 2, 10) == HAL_OK)
+    {
+      printf("  answered: 0x%02X\r\n", addr);
+      found++;
+    }
+  }
+  printf("scan done, %u device(s)\r\n", found);
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -113,6 +126,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    BSP_LED_Toggle(LED2);
+    HAL_Delay(500);
   }
   /* USER CODE END 3 */
 }
@@ -254,7 +269,12 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+int _write(int file, char *ptr, int len)
+{
+  (void)file;
+  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+  return len;
+}
 /* USER CODE END 4 */
 
 /**
