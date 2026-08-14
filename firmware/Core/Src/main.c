@@ -31,7 +31,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define BMP581_ADDR        (0x47 << 1)
+#define BMP581_REG_CHIPID  0x01
+#define BMP581_CHIPID_VAL  0x50
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -110,6 +112,17 @@ int main(void)
     }
   }
   printf("scan done, %u device(s)\r\n", found);
+  uint8_t chip_id = 0;
+  if (HAL_I2C_Mem_Read(&hi2c1, BMP581_ADDR, BMP581_REG_CHIPID,
+                       I2C_MEMADD_SIZE_8BIT, &chip_id, 1, 100) == HAL_OK)
+  {
+    printf("BMP581 chip ID: 0x%02X %s\r\n", chip_id,
+           (chip_id == BMP581_CHIPID_VAL) ? "(match!)" : "(unexpected)");
+  }
+  else
+  {
+    printf("BMP581: no response at 0x47\r\n");
+  }
   /* USER CODE END 2 */
 
   /* Initialize leds */
