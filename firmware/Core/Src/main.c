@@ -31,9 +31,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BMP581_ADDR        (0x47 << 1)
-#define BMP581_REG_CHIPID  0x01
-#define BMP581_CHIPID_VAL  0x50
+#define BMP581_ADDR           (0x47 << 1)
+#define BMP581_REG_CHIPID     0x01
+#define BMP581_CHIPID_VAL     0x50
+#define BMP581_REG_OSR_CONFIG 0x36
+#define BMP581_REG_ODR_CONFIG 0x37
+#define BMP581_REG_TEMP_DATA  0x1D
+#define SEA_LEVEL_PA          101325.0f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -123,6 +127,15 @@ int main(void)
   {
     printf("BMP581: no response at 0x47\r\n");
   }
+  uint8_t cfg = 0x60;   /* press_en = 1, osr_p = 16x, osr_t = 1x */
+  HAL_I2C_Mem_Write(&hi2c1, BMP581_ADDR, BMP581_REG_OSR_CONFIG,
+                    I2C_MEMADD_SIZE_8BIT, &cfg, 1, 100);
+  cfg = 0x5D;           /* normal mode, 10 Hz */
+  HAL_I2C_Mem_Write(&hi2c1, BMP581_ADDR, BMP581_REG_ODR_CONFIG,
+                    I2C_MEMADD_SIZE_8BIT, &cfg, 1, 100);
+  HAL_Delay(100);
+  printf("BMP581 configured: normal mode, 10 Hz\r\n");
+
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -139,6 +152,30 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint8_t buf[6];
+    if (HAL_I2C_Mem_Read(&hi2c1, BMP581_ADDR, BMP581_REG_TEMP_DATA,
+                         I2C_MEMADD_SIZE_8BIT, buf, 6, 100) == HAL_OK)
+    {
+      int32_t raw_t = (int32_t)((uint32_t)buf[0]
+                              | ((uint32_t)buf[1] << 8)
+                              | ((uint32_t)buf[2] << 16));
+      if (raw_t & 0x800000) raw_t -= 0x1000000;   /* sign-extend 24-bit */
+
+      uint32_t raw_p = (uint32_t)buf[3]
+                     | ((uint32_t)buf[4] << 8)
+                     | ((uint32_t)buf[5] << 16);
+
+      float temp_c   = raw_t / 65536.0f;
+      float press_pa = raw_p / 64.0f;
+      float alt_m    = 44330.0f * (1.0f - powf(press_pa / SEA_LEVEL_PA, 1.0f / 5.255f));
+
+      printf("T %.2f C   P %.1f Pa   alt %.2f m\r\n", temp_c, press_pa, alt_m);
+    }
+    else
+    {
+      printf("sensor read failed\r\n");
+    }
+
     BSP_LED_Toggle(LED2);
     HAL_Delay(500);
   }
