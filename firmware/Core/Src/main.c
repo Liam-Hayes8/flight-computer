@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,6 +41,12 @@
 #define SEA_LEVEL_PA          101325.0f
 #define ICM20948_ADDR         (0x69 << 1)
 #define ICM20948_REG_WHOAMI   0x00
+#define ICM_REG_BANK_SEL      0x7F
+#define ICM_REG_PWR_MGMT_1    0x06
+#define ICM_REG_PWR_MGMT_2    0x07
+#define ICM_REG_GYRO_CFG1     0x01
+#define ICM_REG_ACCEL_CFG     0x14
+#define ICM_REG_ACCEL_XOUT    0x2D
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -70,6 +77,16 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+static void icm_bank(uint8_t bank){
+  uint8_t v = bank << 4;
+  HAL_I2C_Mem_Write(&hi2c1, ICM20948_ADDR, ICM_REG_BANK_SEL,
+                    I2C_MEMADD_SIZE_8BIT, &v, 1, 100);
+}
+
+static void icm_write(uint8_t reg, uint8_t val){
+  HAL_I2C_Mem_Write(&hi2c1, ICM20948_ADDR, reg,
+                    I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
+}
 /* USER CODE END 0 */
 
 /**
@@ -147,6 +164,21 @@ int main(void)
     else{
       printf("ICM20948: no response at 0x69\r\n");
     }
+
+  icm_bank(0);
+  icm_write(ICM_REG_PWR_MGMT_1, 0x80);
+  HAL_Delay(100);
+  icm_bank(0);
+  icm_write(ICM_REG_PWR_MGMT_1, 0x01);
+  icm_write(ICM_REG_PWR_MGMT_2, 0x00);
+  HAL_Delay(50);
+
+  icm_bank(2);
+  icm_write(ICM_REG_GYRO_CFG1,  0x01);
+  icm_write(ICM_REG_ACCEL_CFG,  0x01);
+  icm_bank(0);
+  HAL_Delay(50);
+  printf("ICM20948 configured: +/-2 g, +/-250 dps\r\n");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -185,6 +217,21 @@ int main(void)
     else
     {
       printf("sensor read failed\r\n");
+    }
+
+  uint8_t imu[12];
+  if(HAL_I2C_Mem_Read(&hi2c1, ICM20948_ADDR, ICM_REG_ACCEL_XOUT,
+                      I2C_MEMADD_SIZE_8BIT, imu, 12, 100) == HAL_OK) {
+      int16_t ax = (int16_t)((imu[0] << 8) | imu[1]);
+      int16_t ay = (int16_t)((imu[2] << 8) | imu[3]);
+      int16_t az = (int16_t)((imu[4] << 8) | imu[5]);
+      int16_t gx = (int16_t)((imu[6] << 8) | imu[7]);
+      int16_t gy = (int16_t)((imu[8] << 8) | imu[9]);
+      int16_t gz = (int16_t)((imu[10] << 8) | imu[11]);
+
+      printf("A %.2f %.2f %.2f g   G %.1f %.1f %.1f dps\r\n",
+              ax / 16384.0f, ay / 16384.0f, az / 16384.0f,
+              gx / 131.0f,   gy / 131.0f,   gz / 131.0f);
     }
 
     BSP_LED_Toggle(LED2);
