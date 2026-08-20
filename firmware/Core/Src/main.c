@@ -38,6 +38,8 @@
 #define BMP581_REG_ODR_CONFIG 0x37
 #define BMP581_REG_TEMP_DATA  0x1D
 #define SEA_LEVEL_PA          101325.0f
+#define ICM20948_ADDR         (0x69 << 1)
+#define ICM20948_REG_WHOAMI   0x00
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -136,6 +138,15 @@ int main(void)
   HAL_Delay(100);
   printf("BMP581 configured: normal mode, 10 Hz\r\n");
 
+  uint8_t who = 0;
+  if(HAL_I2C_Mem_Read(&hi2c1, ICM20948_ADDR, ICM20948_REG_WHOAMI,
+                      I2C_MEMADD_SIZE_8BIT, &who, 1, 100) == HAL_OK){
+      printf("ICM20948 WHO_AM_I: 0x%02X %s\r\n", who,
+              (who == 0xEA) ? "(match!)" : "(unexpected)");
+    }
+    else{
+      printf("ICM20948: no response at 0x69\r\n");
+    }
   /* USER CODE END 2 */
 
   /* Initialize leds */
