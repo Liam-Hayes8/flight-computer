@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "bmp581.h"
 #include "icm20948.h"
 #include "gps.h"
@@ -57,6 +58,10 @@ UART_HandleTypeDef huart2;
 static volatile uint8_t  tick_flag     = 0;
 static volatile uint32_t tick_count    = 0;
 static volatile uint32_t overrun_count = 0;
+static float roll_gyro  = 0.0f;
+static float pitch_gyro = 0.0f;
+static float roll_cf  = 0.0f;
+static float pitch_cf = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -153,6 +158,17 @@ int main(void)
     /* ---- 100 Hz ---- */
     icm20948_data_t imu;
     bool imu_ok = icm20948_read(&imu);
+    float roll_acc = 0.0f, pitch_acc = 0.0f;
+    if (imu_ok)
+    {
+      roll_acc  = atan2f(imu.ay, imu.az) * 57.2957795f;
+      pitch_acc = atan2f(-imu.ax, sqrtf(imu.ay * imu.ay + imu.az * imu.az))
+                  * 57.2957795f;
+      roll_gyro  += imu.gx * 0.01f;   /* dt = 10 ms */
+      pitch_gyro += imu.gy * 0.01f;
+      roll_cf  = 0.98f * (roll_cf  + imu.gx * 0.01f) + 0.02f * roll_acc;
+      pitch_cf = 0.98f * (pitch_cf + imu.gy * 0.01f) + 0.02f * pitch_acc;
+    }
 
     /* ---- 10 Hz: baro + telemetry ---- */
     static uint8_t div10 = 0;
@@ -161,13 +177,9 @@ int main(void)
       div10 = 0;
 
       bmp581_data_t baro;
-      if (bmp581_read(&baro))
-        printf("T %.2f C   P %.1f Pa   alt %.2f m\r\n",
-               baro.temperature_c, baro.pressure_pa, baro.altitude_m);
-
       if (imu_ok)
-        printf("A %.2f %.2f %.2f g   G %.1f %.1f %.1f dps\r\n",
-               imu.ax, imu.ay, imu.az, imu.gx, imu.gy, imu.gz);
+        printf("ACC%+7.2f  GYR%+7.2f  CF%+7.2f\r\n",
+               roll_acc, roll_gyro, roll_cf);
 
       char nmea[128];
       if (gps_get_sentence(nmea, sizeof(nmea)))
