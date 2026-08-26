@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,10 +60,15 @@
 
 I2C_HandleTypeDef hi2c1;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+static uint8_t gps_rx_byte;
+static char gps_line[128];
+static volatile int gps_idx = 0;
+static char gps_sentence[128];
+static volatile uint8_t gps_ready = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,6 +76,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -120,6 +127,7 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_USART2_UART_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   BSP_LED_Init(LED2);
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -179,6 +187,8 @@ int main(void)
   icm_bank(0);
   HAL_Delay(50);
   printf("ICM20948 configured: +/-2 g, +/-250 dps\r\n");
+  HAL_UART_Receive_IT(&huart1, &gps_rx_byte, 1);
+  printf("GPS: UART interrupt armed\r\n");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -232,6 +242,12 @@ int main(void)
       printf("A %.2f %.2f %.2f g   G %.1f %.1f %.1f dps\r\n",
               ax / 16384.0f, ay / 16384.0f, az / 16384.0f,
               gx / 131.0f,   gy / 131.0f,   gz / 131.0f);
+    }
+
+    if (gps_ready)
+    {
+      printf("GPS: %s\r\n", gps_sentence);
+      gps_ready = 0;
     }
 
     BSP_LED_Toggle(LED2);
@@ -322,6 +338,39 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 9600;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -382,6 +431,29 @@ int _write(int file, char *ptr, int len)
   (void)file;
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
   return len;
+}
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    char c = (char)gps_rx_byte;
+    if (c == '\n')
+    {
+      gps_line[gps_idx] = '\0';
+      if (gps_idx > 0 && !gps_ready)
+      {
+        strcpy(gps_sentence, gps_line);
+        gps_ready = 1;
+      }
+      gps_idx = 0;
+    }
+    else if (c != '\r')
+    {
+      if (gps_idx < (int)sizeof(gps_line) - 1) gps_line[gps_idx++] = c;
+      else gps_idx = 0;              /* overflow — resync */
+    }
+    HAL_UART_Receive_IT(&huart1, &gps_rx_byte, 1);
+  }
 }
 /* USER CODE END 4 */
 

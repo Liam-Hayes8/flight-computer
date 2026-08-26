@@ -26,3 +26,6 @@ __pycache__/
 # OS noise
 Thumbs.db
 .DS_Store
+
+# Serial capture logs (may contain GPS coordinates)
+*.log
