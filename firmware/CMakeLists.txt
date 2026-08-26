@@ -68,3 +68,10 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 )
 
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -u _printf_float)
+
+# User sensor drivers
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    Core/Src/bmp581.c
+    Core/Src/icm20948.c
+    Core/Src/gps.c
+)

@@ -22,8 +22,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-#include <math.h>
 #include <string.h>
+#include "bmp581.h"
+#include "icm20948.h"
+#include "gps.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,21 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BMP581_ADDR           (0x47 << 1)
-#define BMP581_REG_CHIPID     0x01
-#define BMP581_CHIPID_VAL     0x50
-#define BMP581_REG_OSR_CONFIG 0x36
-#define BMP581_REG_ODR_CONFIG 0x37
-#define BMP581_REG_TEMP_DATA  0x1D
-#define SEA_LEVEL_PA          101325.0f
-#define ICM20948_ADDR         (0x69 << 1)
-#define ICM20948_REG_WHOAMI   0x00
-#define ICM_REG_BANK_SEL      0x7F
-#define ICM_REG_PWR_MGMT_1    0x06
-#define ICM_REG_PWR_MGMT_2    0x07
-#define ICM_REG_GYRO_CFG1     0x01
-#define ICM_REG_ACCEL_CFG     0x14
-#define ICM_REG_ACCEL_XOUT    0x2D
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -64,11 +52,7 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-static uint8_t gps_rx_byte;
-static char gps_line[128];
-static volatile int gps_idx = 0;
-static char gps_sentence[128];
-static volatile uint8_t gps_ready = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,16 +68,6 @@ static void MX_USART1_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-static void icm_bank(uint8_t bank){
-  uint8_t v = bank << 4;
-  HAL_I2C_Mem_Write(&hi2c1, ICM20948_ADDR, ICM_REG_BANK_SEL,
-                    I2C_MEMADD_SIZE_8BIT, &v, 1, 100);
-}
-
-static void icm_write(uint8_t reg, uint8_t val){
-  HAL_I2C_Mem_Write(&hi2c1, ICM20948_ADDR, reg,
-                    I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
-}
 /* USER CODE END 0 */
 
 /**
@@ -132,6 +106,7 @@ int main(void)
   BSP_LED_Init(LED2);
   setvbuf(stdout, NULL, _IONBF, 0);
   printf("\r\nflight-computer boot\r\n");
+
   printf("I2C scan: knocking on 0x08-0x77...\r\n");
   uint8_t found = 0;
   for (uint8_t addr = 0x08; addr <= 0x77; addr++)
@@ -143,52 +118,11 @@ int main(void)
     }
   }
   printf("scan done, %u device(s)\r\n", found);
-  uint8_t chip_id = 0;
-  if (HAL_I2C_Mem_Read(&hi2c1, BMP581_ADDR, BMP581_REG_CHIPID,
-                       I2C_MEMADD_SIZE_8BIT, &chip_id, 1, 100) == HAL_OK)
-  {
-    printf("BMP581 chip ID: 0x%02X %s\r\n", chip_id,
-           (chip_id == BMP581_CHIPID_VAL) ? "(match!)" : "(unexpected)");
-  }
-  else
-  {
-    printf("BMP581: no response at 0x47\r\n");
-  }
-  uint8_t cfg = 0x60;   /* press_en = 1, osr_p = 16x, osr_t = 1x */
-  HAL_I2C_Mem_Write(&hi2c1, BMP581_ADDR, BMP581_REG_OSR_CONFIG,
-                    I2C_MEMADD_SIZE_8BIT, &cfg, 1, 100);
-  cfg = 0x5D;           /* normal mode, 10 Hz */
-  HAL_I2C_Mem_Write(&hi2c1, BMP581_ADDR, BMP581_REG_ODR_CONFIG,
-                    I2C_MEMADD_SIZE_8BIT, &cfg, 1, 100);
-  HAL_Delay(100);
-  printf("BMP581 configured: normal mode, 10 Hz\r\n");
 
-  uint8_t who = 0;
-  if(HAL_I2C_Mem_Read(&hi2c1, ICM20948_ADDR, ICM20948_REG_WHOAMI,
-                      I2C_MEMADD_SIZE_8BIT, &who, 1, 100) == HAL_OK){
-      printf("ICM20948 WHO_AM_I: 0x%02X %s\r\n", who,
-              (who == 0xEA) ? "(match!)" : "(unexpected)");
-    }
-    else{
-      printf("ICM20948: no response at 0x69\r\n");
-    }
-
-  icm_bank(0);
-  icm_write(ICM_REG_PWR_MGMT_1, 0x80);
-  HAL_Delay(100);
-  icm_bank(0);
-  icm_write(ICM_REG_PWR_MGMT_1, 0x01);
-  icm_write(ICM_REG_PWR_MGMT_2, 0x00);
-  HAL_Delay(50);
-
-  icm_bank(2);
-  icm_write(ICM_REG_GYRO_CFG1,  0x01);
-  icm_write(ICM_REG_ACCEL_CFG,  0x01);
-  icm_bank(0);
-  HAL_Delay(50);
-  printf("ICM20948 configured: +/-2 g, +/-250 dps\r\n");
-  HAL_UART_Receive_IT(&huart1, &gps_rx_byte, 1);
-  printf("GPS: UART interrupt armed\r\n");
+  printf("BMP581  : %s\r\n", bmp581_init(&hi2c1)   ? "ok" : "FAILED");
+  printf("ICM20948: %s\r\n", icm20948_init(&hi2c1) ? "ok" : "FAILED");
+  gps_init(&huart1);
+  printf("GPS     : UART interrupt armed\r\n");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -205,50 +139,24 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint8_t buf[6];
-    if (HAL_I2C_Mem_Read(&hi2c1, BMP581_ADDR, BMP581_REG_TEMP_DATA,
-                         I2C_MEMADD_SIZE_8BIT, buf, 6, 100) == HAL_OK)
-    {
-      int32_t raw_t = (int32_t)((uint32_t)buf[0]
-                              | ((uint32_t)buf[1] << 8)
-                              | ((uint32_t)buf[2] << 16));
-      if (raw_t & 0x800000) raw_t -= 0x1000000;   /* sign-extend 24-bit */
-
-      uint32_t raw_p = (uint32_t)buf[3]
-                     | ((uint32_t)buf[4] << 8)
-                     | ((uint32_t)buf[5] << 16);
-
-      float temp_c   = raw_t / 65536.0f;
-      float press_pa = raw_p / 64.0f;
-      float alt_m    = 44330.0f * (1.0f - powf(press_pa / SEA_LEVEL_PA, 1.0f / 5.255f));
-
-      printf("T %.2f C   P %.1f Pa   alt %.2f m\r\n", temp_c, press_pa, alt_m);
-    }
+    bmp581_data_t baro;
+    if (bmp581_read(&baro))
+      printf("T %.2f C   P %.1f Pa   alt %.2f m\r\n",
+             baro.temperature_c, baro.pressure_pa, baro.altitude_m);
     else
-    {
-      printf("sensor read failed\r\n");
-    }
+      printf("BMP581 read failed\r\n");
 
-  uint8_t imu[12];
-  if(HAL_I2C_Mem_Read(&hi2c1, ICM20948_ADDR, ICM_REG_ACCEL_XOUT,
-                      I2C_MEMADD_SIZE_8BIT, imu, 12, 100) == HAL_OK) {
-      int16_t ax = (int16_t)((imu[0] << 8) | imu[1]);
-      int16_t ay = (int16_t)((imu[2] << 8) | imu[3]);
-      int16_t az = (int16_t)((imu[4] << 8) | imu[5]);
-      int16_t gx = (int16_t)((imu[6] << 8) | imu[7]);
-      int16_t gy = (int16_t)((imu[8] << 8) | imu[9]);
-      int16_t gz = (int16_t)((imu[10] << 8) | imu[11]);
-
+    icm20948_data_t imu;
+    if (icm20948_read(&imu))
       printf("A %.2f %.2f %.2f g   G %.1f %.1f %.1f dps\r\n",
-              ax / 16384.0f, ay / 16384.0f, az / 16384.0f,
-              gx / 131.0f,   gy / 131.0f,   gz / 131.0f);
-    }
+             imu.ax, imu.ay, imu.az, imu.gx, imu.gy, imu.gz);
+    else
+      printf("ICM20948 read failed\r\n");
 
-    if (gps_ready)
-    {
-      printf("GPS: %s\r\n", gps_sentence);
-      gps_ready = 0;
-    }
+    
+    char nmea[128];
+    if (gps_get_sentence(nmea, sizeof(nmea)))
+      printf("GPS[%d]: %s\r\n", (int)strlen(nmea), nmea);
 
     BSP_LED_Toggle(LED2);
     HAL_Delay(500);
@@ -431,29 +339,6 @@ int _write(int file, char *ptr, int len)
   (void)file;
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
   return len;
-}
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    char c = (char)gps_rx_byte;
-    if (c == '\n')
-    {
-      gps_line[gps_idx] = '\0';
-      if (gps_idx > 0 && !gps_ready)
-      {
-        strcpy(gps_sentence, gps_line);
-        gps_ready = 1;
-      }
-      gps_idx = 0;
-    }
-    else if (c != '\r')
-    {
-      if (gps_idx < (int)sizeof(gps_line) - 1) gps_line[gps_idx++] = c;
-      else gps_idx = 0;              /* overflow — resync */
-    }
-    HAL_UART_Receive_IT(&huart1, &gps_rx_byte, 1);
-  }
 }
 /* USER CODE END 4 */
 
