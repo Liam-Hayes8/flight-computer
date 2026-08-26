@@ -48,11 +48,15 @@
 
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+static volatile uint8_t  tick_flag     = 0;
+static volatile uint32_t tick_count    = 0;
+static volatile uint32_t overrun_count = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -61,6 +65,7 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -102,6 +107,7 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   MX_USART1_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   BSP_LED_Init(LED2);
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -123,6 +129,8 @@ int main(void)
   printf("ICM20948: %s\r\n", icm20948_init(&hi2c1) ? "ok" : "FAILED");
   gps_init(&huart1);
   printf("GPS     : UART interrupt armed\r\n");
+  HAL_TIM_Base_Start_IT(&htim2);
+  printf("100 Hz timer started\r\n");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -139,27 +147,43 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    bmp581_data_t baro;
-    if (bmp581_read(&baro))
-      printf("T %.2f C   P %.1f Pa   alt %.2f m\r\n",
-             baro.temperature_c, baro.pressure_pa, baro.altitude_m);
-    else
-      printf("BMP581 read failed\r\n");
+    if (!tick_flag) continue;
+    tick_flag = 0;
 
+    /* ---- 100 Hz ---- */
     icm20948_data_t imu;
-    if (icm20948_read(&imu))
-      printf("A %.2f %.2f %.2f g   G %.1f %.1f %.1f dps\r\n",
-             imu.ax, imu.ay, imu.az, imu.gx, imu.gy, imu.gz);
-    else
-      printf("ICM20948 read failed\r\n");
+    bool imu_ok = icm20948_read(&imu);
 
-    
-    char nmea[128];
-    if (gps_get_sentence(nmea, sizeof(nmea)))
-      printf("GPS[%d]: %s\r\n", (int)strlen(nmea), nmea);
+    /* ---- 10 Hz: baro + telemetry ---- */
+    static uint8_t div10 = 0;
+    if (++div10 >= 10)
+    {
+      div10 = 0;
 
-    BSP_LED_Toggle(LED2);
-    HAL_Delay(500);
+      bmp581_data_t baro;
+      if (bmp581_read(&baro))
+        printf("T %.2f C   P %.1f Pa   alt %.2f m\r\n",
+               baro.temperature_c, baro.pressure_pa, baro.altitude_m);
+
+      if (imu_ok)
+        printf("A %.2f %.2f %.2f g   G %.1f %.1f %.1f dps\r\n",
+               imu.ax, imu.ay, imu.az, imu.gx, imu.gy, imu.gz);
+
+      char nmea[128];
+      if (gps_get_sentence(nmea, sizeof(nmea)))
+        printf("GPS: %s\r\n", nmea);
+
+      BSP_LED_Toggle(LED2);
+    }
+
+    /* ---- 1 Hz: loop health ---- */
+    static uint16_t div100 = 0;
+    if (++div100 >= 100)
+    {
+      div100 = 0;
+      printf("[loop] ticks=%lu overruns=%lu\r\n",
+             (unsigned long)tick_count, (unsigned long)overrun_count);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -242,6 +266,51 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 8399;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 99;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -339,6 +408,15 @@ int _write(int file, char *ptr, int len)
   (void)file;
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
   return len;
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance != TIM2) return;
+
+  if (tick_flag) overrun_count++;   /* last tick never got serviced */
+  tick_flag = 1;
+  tick_count++;
 }
 /* USER CODE END 4 */
 
