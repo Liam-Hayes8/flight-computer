@@ -79,7 +79,37 @@ static void MX_TIM2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void i2c_bus_recover(void)
+{
+  GPIO_InitTypeDef g = {0};
 
+  /* Drive SCL (PB8) and SDA (PB9) as open-drain outputs. */
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  g.Pin   = GPIO_PIN_8 | GPIO_PIN_9;
+  g.Mode  = GPIO_MODE_OUTPUT_OD;
+  g.Pull  = GPIO_PULLUP;
+  g.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &g);
+
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);   /* release SDA */
+
+  /* Nine clock pulses flush any slave stuck mid-byte. */
+  for (int i = 0; i < 9; i++)
+  {
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+    HAL_Delay(1);
+  }
+
+  /* Manual STOP: SDA low->high while SCL is high. */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+  HAL_Delay(1);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+  HAL_Delay(1);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+  HAL_Delay(1);
+}
 /* USER CODE END 0 */
 
 /**
@@ -106,7 +136,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  i2c_bus_recover();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
