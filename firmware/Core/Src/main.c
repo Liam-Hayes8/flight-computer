@@ -177,9 +177,11 @@ int main(void)
       div10 = 0;
 
       bmp581_data_t baro;
+      bool baro_ok = bmp581_read(&baro);
+
       if (imu_ok)
-        printf("ACC%+7.2f  GYR%+7.2f  CF%+7.2f\r\n",
-               roll_acc, roll_gyro, roll_cf);
+        printf("$TLM,%.2f,%.2f,%.2f\r\n",
+               roll_cf, pitch_cf, baro_ok ? baro.altitude_m : 0.0f);
 
       char nmea[128];
       if (gps_get_sentence(nmea, sizeof(nmea)))

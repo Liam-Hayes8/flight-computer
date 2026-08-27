@@ -29,3 +29,6 @@ Thumbs.db
 
 # Serial capture logs (may contain GPS coordinates)
 *.log
+
+# Python virtual environment
+ground-station/venv/
