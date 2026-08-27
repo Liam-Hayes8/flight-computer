@@ -62,6 +62,8 @@ static float roll_gyro  = 0.0f;
 static float pitch_gyro = 0.0f;
 static float roll_cf  = 0.0f;
 static float pitch_cf = 0.0f;
+static float gx_bias = 0.0f;
+static float gy_bias = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -134,6 +136,20 @@ int main(void)
   printf("ICM20948: %s\r\n", icm20948_init(&hi2c1) ? "ok" : "FAILED");
   gps_init(&huart1);
   printf("GPS     : UART interrupt armed\r\n");
+  printf("Calibrating gyro, hold still...\r\n");
+  {
+    float sx = 0.0f, sy = 0.0f;
+    int n = 0;
+    for (int i = 0; i < 200; i++)
+    {
+      icm20948_data_t s;
+      if (icm20948_read(&s)) { sx += s.gx; sy += s.gy; n++; }
+      HAL_Delay(5);
+    }
+    if (n > 0) { gx_bias = sx / n; gy_bias = sy / n; }
+    printf("Gyro bias: x %.3f  y %.3f dps (%d samples)\r\n",
+           gx_bias, gy_bias, n);
+  }
   HAL_TIM_Base_Start_IT(&htim2);
   printf("100 Hz timer started\r\n");
   /* USER CODE END 2 */
@@ -164,10 +180,15 @@ int main(void)
       roll_acc  = atan2f(imu.ay, imu.az) * 57.2957795f;
       pitch_acc = atan2f(-imu.ax, sqrtf(imu.ay * imu.ay + imu.az * imu.az))
                   * 57.2957795f;
-      roll_gyro  += imu.gx * 0.01f;   /* dt = 10 ms */
-      pitch_gyro += imu.gy * 0.01f;
-      roll_cf  = 0.98f * (roll_cf  + imu.gx * 0.01f) + 0.02f * roll_acc;
-      pitch_cf = 0.98f * (pitch_cf + imu.gy * 0.01f) + 0.02f * pitch_acc;
+
+    float gx = imu.gx - gx_bias;
+    float gy = imu.gy - gy_bias;
+            
+    roll_gyro  += gx * 0.01f;   /* dt = 10 ms */
+    pitch_gyro += gy * 0.01f;
+            
+    roll_cf  = 0.98f * (roll_cf  + gx * 0.01f) + 0.02f * roll_acc;
+    pitch_cf = 0.98f * (pitch_cf + gy * 0.01f) + 0.02f * pitch_acc;
     }
 
     /* ---- 10 Hz: baro + telemetry ---- */
