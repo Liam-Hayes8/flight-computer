@@ -27,6 +27,7 @@
 #include "bmp581.h"
 #include "icm20948.h"
 #include "gps.h"
+#include "gps_parse.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -236,9 +237,12 @@ int main(void)
 
       char nmea[128];
       if (gps_get_sentence(nmea, sizeof(nmea)))
-        printf("GPS: %s\r\n", nmea);
-
-      BSP_LED_Toggle(LED2);
+      {
+        gps_fix_t fix;
+        if (gps_parse_gga(nmea, &fix) && fix.valid)
+          printf("$POS,%.6f,%.6f,%.1f,%d\r\n",
+                 fix.latitude, fix.longitude, fix.altitude_m, fix.satellites);
+      }
     }
 
     /* ---- 1 Hz: loop health ---- */
