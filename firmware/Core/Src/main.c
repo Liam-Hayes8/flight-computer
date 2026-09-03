@@ -239,9 +239,14 @@ int main(void)
       if (gps_get_sentence(nmea, sizeof(nmea)))
       {
         gps_fix_t fix;
-        if (gps_parse_gga(nmea, &fix) && fix.valid)
-          printf("$POS,%.6f,%.6f,%.1f,%d\r\n",
-                 fix.latitude, fix.longitude, fix.altitude_m, fix.satellites);
+        if (gps_parse_gga(nmea, &fix))
+        {
+          if (fix.valid)
+            printf("$POS,%.6f,%.6f,%.1f,%d\r\n",
+                   fix.latitude, fix.longitude, fix.altitude_m, fix.satellites);
+          else
+            printf("$POS,nofix\r\n");
+        }
       }
     }
 
