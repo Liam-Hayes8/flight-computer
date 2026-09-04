@@ -65,6 +65,11 @@ static float roll_cf  = 0.0f;
 static float pitch_cf = 0.0f;
 static float gx_bias = 0.0f;
 static float gy_bias = 0.0f;
+static float alt_fused = 0.0f;
+static float baro_offset = 0.0f;
+static bool  alt_init = false;
+static float gps_alt     = 0.0f;
+static bool  have_gps_fix = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -212,14 +217,14 @@ int main(void)
       pitch_acc = atan2f(-imu.ax, sqrtf(imu.ay * imu.ay + imu.az * imu.az))
                   * 57.2957795f;
 
-    float gx = imu.gx - gx_bias;
-    float gy = imu.gy - gy_bias;
-            
-    roll_gyro  += gx * 0.01f;   /* dt = 10 ms */
-    pitch_gyro += gy * 0.01f;
-            
-    roll_cf  = 0.98f * (roll_cf  + gx * 0.01f) + 0.02f * roll_acc;
-    pitch_cf = 0.98f * (pitch_cf + gy * 0.01f) + 0.02f * pitch_acc;
+      float gx = imu.gx - gx_bias;
+      float gy = imu.gy - gy_bias;
+
+      roll_gyro  += gx * 0.01f;   /* dt = 10 ms */
+      pitch_gyro += gy * 0.01f;
+
+      roll_cf  = 0.98f * (roll_cf  + gx * 0.01f) + 0.02f * roll_acc;
+      pitch_cf = 0.98f * (pitch_cf + gy * 0.01f) + 0.02f * pitch_acc;
     }
 
     /* ---- 10 Hz: baro + telemetry ---- */
@@ -231,10 +236,7 @@ int main(void)
       bmp581_data_t baro;
       bool baro_ok = bmp581_read(&baro);
 
-      if (imu_ok)
-        printf("$TLM,%.2f,%.2f,%.2f\r\n",
-               roll_cf, pitch_cf, baro_ok ? baro.altitude_m : 0.0f);
-
+      /* Parse GPS first so this cycle's fusion uses the freshest fix. */
       char nmea[128];
       if (gps_get_sentence(nmea, sizeof(nmea)))
       {
@@ -242,12 +244,42 @@ int main(void)
         if (gps_parse_gga(nmea, &fix))
         {
           if (fix.valid)
+          {
+            gps_alt      = fix.altitude_m;
+            have_gps_fix = true;
             printf("$POS,%.6f,%.6f,%.1f,%d\r\n",
                    fix.latitude, fix.longitude, fix.altitude_m, fix.satellites);
+          }
           else
+          {
+            have_gps_fix = false;
             printf("$POS,nofix\r\n");
+          }
         }
       }
+
+      /* Barometer supplies fast, precise motion. */
+      if (baro_ok)
+      {
+        if (!alt_init && have_gps_fix)
+        {
+          baro_offset = gps_alt - baro.altitude_m;   /* one-time alignment */
+          alt_init = true;
+        }
+        alt_fused = baro.altitude_m + baro_offset;
+
+        /* GPS slowly corrects the offset: ~100 s time constant, so
+         * weather drift is tracked but GPS noise is rejected. */
+        if (alt_init && have_gps_fix)
+          baro_offset += 0.001f * (gps_alt - alt_fused);
+      }
+
+      if (imu_ok)
+        printf("$TLM,%.2f,%.2f,%.2f\r\n",
+               roll_cf, pitch_cf,
+               alt_init ? alt_fused : (baro_ok ? baro.altitude_m : 0.0f));
+
+      BSP_LED_Toggle(LED2);
     }
 
     /* ---- 1 Hz: loop health ---- */
