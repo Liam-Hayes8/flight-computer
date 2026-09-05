@@ -124,7 +124,6 @@ static void mag_rearm(void)
 {
   icm_bank(0);
   icm_write(ICM_REG_USER_CTRL, 0x02);   /* I2C_MST_RST */
-  HAL_Delay(10);
   icm_write(ICM_REG_USER_CTRL, 0x20);   /* re-enable master */
   icm_bank(3);
   icm_write(ICM_REG_I2C_SLV0_ADDR, AK09916_ADDR | 0x80);

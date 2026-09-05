@@ -58,6 +58,7 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 #define MAG_OFF_X  49.2f
 #define MAG_OFF_Y  -19.3f
+#define MAG_OFF_Z  25.2f
 static volatile uint8_t  tick_flag     = 0;
 static volatile uint32_t tick_count    = 0;
 static volatile uint32_t overrun_count = 0;
@@ -281,8 +282,20 @@ int main(void)
       {
         float mxc = mag.mx - MAG_OFF_X;
         float myc = mag.my - MAG_OFF_Y;
-        float heading = atan2f(-myc, mxc) * 57.2957795f;
-        if (heading < 0) heading += 360.0f;
+        float mzc = mag.mz - MAG_OFF_Z;
+
+        float r = roll_cf  * 0.01745329f;   /* deg -> rad */
+        float p = pitch_cf * 0.01745329f;
+
+        /* Rotate the field back to level using known roll and pitch. */
+        float xh = mxc * cosf(p) + mzc * sinf(p);
+        float yh = mxc * sinf(r) * sinf(p) + myc * cosf(r) - mzc * sinf(r) * cosf(p);
+
+        float heading = atan2f(-yh, xh) * 57.2957795f;
+        heading += 11.5f;                    /* Long Beach declination, deg east */
+        if (heading < 0)   heading += 360.0f;
+        if (heading >= 360) heading -= 360.0f;
+
         printf("$HDG,%.1f\r\n", heading);
       }
       if (imu_ok)
