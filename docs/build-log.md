@@ -1,6 +1,7 @@
 # Build log
 
-This doubles as interview prep — a written record of every problem solved.
+Newest first. Every work session gets an entry: **did / broke / learned / next.**
+
 
 ---
 
