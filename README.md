@@ -5,7 +5,7 @@ position from raw sensors. Bare-metal C, no RTOS, no Arduino libraries. Every dr
 written from the datasheet.
 
 **Status:** Phase 2 complete. Attitude and altitude fusion running on hardware.
-*Last updated 2026-09-04.*
+*Last updated 2026-09-05.*
 
 ## Demo
 
@@ -16,7 +16,8 @@ Live fused attitude estimate driving a Python artificial-horizon ground station 
 ## What it does
 
 Runs a 100 Hz fixed-rate control loop that reads a 9-axis IMU, fuses gyroscope and
-accelerometer data through a complementary filter, and produces a stable pitch/roll
+accelerometer data through a complementary filter for pitch and roll, and computes
+tilt-compensated heading from the magnetometer, giving full three-axis attitude. A stable pitch/roll
 estimate. A second complementary filter fuses barometric altitude with GNSS altitude,
 giving barometer-grade precision anchored to an absolute GPS reference. Telemetry
 streams over serial to a ground station that renders an artificial horizon.
@@ -35,6 +36,7 @@ Every number below was measured on the assembled hardware, not taken from a data
 | Barometric weather drift, uncorrected | about 30 m over three days |
 | GPS altitude wander, stationary | 1 to 2 m over 20 s |
 | Fused altitude spread, stationary | 6 cm, anchored to GPS level |
+| Magnetometer heading, flat rotation | returns to start within 2 deg after a full 360 |
 | Flash / RAM used | 40 KB / 3.1 KB of 512 KB / 128 KB |
 
 The fused attitude error before calibration matched theory: gyro bias times filter
@@ -67,6 +69,12 @@ interrupt-driven UART so no NMEA sentences are dropped while the main loop is bu
   stationary window at boot, then subtracted from every reading.
 - **I2C bus recovery.** Nine manual clock pulses on SCL before peripheral init free any
   slave left holding SDA low by a reset mid-transaction.
+- **Magnetometer over the auxiliary I2C bus.** The AK09916 sits behind the ICM's
+  internal I2C master rather than on the main bus. The ICM is configured to poll
+  it and latch results into its external-sensor registers. Hard-iron calibrated
+  by tumbling through all orientations; heading is tilt-compensated using the
+  attitude estimate and corrected for local declination. Stall detection
+  re-arms the master if the link freezes on the breadboard.
 - **Interrupt-driven UART with error recovery.** A byte-level ISR assembles NMEA
   sentences; an error callback clears overrun/framing flags and re-arms reception.
   Completed sentences are handed to the main loop inside a critical section.
@@ -92,7 +100,7 @@ interrupt-driven UART so no NMEA sentences are dropped while the main loop is bu
 
 - [x] **Phase 1 - Bring-up:** all three sensors live, verified by chip ID, streaming
 - [x] **Phase 2a - Fixed-rate loop:** 100 Hz hardware timing with overrun detection
-- [x] **Phase 2b - Attitude fusion:** complementary filter, drift characterized, bias calibrated
+- [x] **Phase 2b - Attitude fusion:** complementary filter, bias calibrated, magnetometer heading
 - [x] **Phase 2c - Ground station:** live artificial-horizon display
 - [x] **Phase 2d - Altitude fusion:** barometer + GPS with slow offset correction
 - [ ] **Phase 2e - Logging:** onboard microSD flight recorder over SPI
