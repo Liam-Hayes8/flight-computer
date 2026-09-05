@@ -56,6 +56,8 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+#define MAG_OFF_X  49.2f
+#define MAG_OFF_Y  -19.3f
 static volatile uint8_t  tick_flag     = 0;
 static volatile uint32_t tick_count    = 0;
 static volatile uint32_t overrun_count = 0;
@@ -170,6 +172,7 @@ int main(void)
 
   printf("BMP581  : %s\r\n", bmp581_init(&hi2c1)   ? "ok" : "FAILED");
   printf("ICM20948: %s\r\n", icm20948_init(&hi2c1) ? "ok" : "FAILED");
+  printf("AK09916 : %s\r\n", icm20948_mag_init() ? "ok" : "FAILED");
   gps_init(&huart1);
   printf("GPS     : UART interrupt armed\r\n");
   printf("Calibrating gyro, hold still...\r\n");
@@ -273,7 +276,15 @@ int main(void)
         if (alt_init && have_gps_fix)
           baro_offset += 0.001f * (gps_alt - alt_fused);
       }
-
+      icm20948_mag_t mag;
+      if (icm20948_mag_read(&mag))
+      {
+        float mxc = mag.mx - MAG_OFF_X;
+        float myc = mag.my - MAG_OFF_Y;
+        float heading = atan2f(-myc, mxc) * 57.2957795f;
+        if (heading < 0) heading += 360.0f;
+        printf("$HDG,%.1f\r\n", heading);
+      }
       if (imu_ok)
         printf("$TLM,%.2f,%.2f,%.2f\r\n",
                roll_cf, pitch_cf,
