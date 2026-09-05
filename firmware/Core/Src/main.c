@@ -56,9 +56,9 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-#define MAG_OFF_X  49.2f
-#define MAG_OFF_Y  -19.3f
-#define MAG_OFF_Z  25.2f
+#define MAG_OFF_X  24.5f
+#define MAG_OFF_Y  -15.0f
+#define MAG_OFF_Z  59.0f
 static volatile uint8_t  tick_flag     = 0;
 static volatile uint32_t tick_count    = 0;
 static volatile uint32_t overrun_count = 0;
@@ -73,6 +73,9 @@ static float baro_offset = 0.0f;
 static bool  alt_init = false;
 static float gps_alt     = 0.0f;
 static bool  have_gps_fix = false;
+static float mx_min=9999, mx_max=-9999;
+static float my_min=9999, my_max=-9999;
+static float mz_min=9999, mz_max=-9999;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -284,16 +287,15 @@ int main(void)
         float myc = mag.my - MAG_OFF_Y;
         float mzc = mag.mz - MAG_OFF_Z;
 
-        float r = roll_cf  * 0.01745329f;   /* deg -> rad */
+        float r = roll_cf  * 0.01745329f;
         float p = pitch_cf * 0.01745329f;
 
-        /* Rotate the field back to level using known roll and pitch. */
         float xh = mxc * cosf(p) + mzc * sinf(p);
         float yh = mxc * sinf(r) * sinf(p) + myc * cosf(r) - mzc * sinf(r) * cosf(p);
 
         float heading = atan2f(-yh, xh) * 57.2957795f;
-        heading += 11.5f;                    /* Long Beach declination, deg east */
-        if (heading < 0)   heading += 360.0f;
+        heading += 11.5f;
+        if (heading < 0)    heading += 360.0f;
         if (heading >= 360) heading -= 360.0f;
 
         printf("$HDG,%.1f\r\n", heading);
