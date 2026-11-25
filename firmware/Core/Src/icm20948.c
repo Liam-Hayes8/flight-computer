@@ -1,5 +1,6 @@
 #include "icm20948.h"
 #include <string.h>
+#include <stdio.h>
 
 #define ICM_ADDR            (0x69 << 1)
 #define ICM_REG_WHOAMI      0x00
@@ -15,12 +16,8 @@
 #define GYRO_LSB_PER_DPS    131.0f     /* +/-250 dps */
 
 #define ICM_REG_USER_CTRL       0x03   /* bank 0 */
-#define ICM_REG_EXT_SLV_DATA    0x3B   /* bank 0 */
-#define ICM_REG_I2C_MST_CTRL    0x01   /* bank 3 */
-#define ICM_REG_I2C_SLV0_ADDR   0x03   /* bank 3 */
-#define ICM_REG_I2C_SLV0_REG    0x04   /* bank 3 */
 #define ICM_REG_I2C_SLV0_CTRL   0x05   /* bank 3 */
-#define ICM_REG_I2C_SLV0_DO     0x06   /* bank 3 */
+
 
 #define AK09916_ADDR            0x0C
 #define AK09916_REG_WIA2        0x01   /* device ID, expect 0x09 */
@@ -30,6 +27,7 @@
 #define AK09916_UT_PER_LSB      0.15f
 
 static I2C_HandleTypeDef *bus;
+static bool    mag_ready   = false;
 
 static void icm_bank(uint8_t bank)
 {
@@ -43,117 +41,97 @@ static void icm_write(uint8_t reg, uint8_t val)
   HAL_I2C_Mem_Write(bus, ICM_ADDR, reg,
                     I2C_MEMADD_SIZE_8BIT, &val, 1, 100);
 }
-static uint8_t icm_read_reg(uint8_t reg)
-{
-  uint8_t v = 0;
-  HAL_I2C_Mem_Read(bus, ICM_ADDR, reg, I2C_MEMADD_SIZE_8BIT, &v, 1, 100);
-  return v;
-}
 
-/* Write one byte to an AK09916 register through the ICM's I2C master. */
-static void mag_write(uint8_t reg, uint8_t val)
-{
-  icm_bank(3);
-  icm_write(ICM_REG_I2C_SLV0_ADDR, AK09916_ADDR);        /* write mode */
-  icm_write(ICM_REG_I2C_SLV0_REG,  reg);
-  icm_write(ICM_REG_I2C_SLV0_DO,   val);
-  icm_write(ICM_REG_I2C_SLV0_CTRL, 0x81);                /* enable, 1 byte */
-  icm_bank(0);
-  HAL_Delay(10);                                         /* let master run */
-}
+/* ------------------------------------------------------------------ */
+/* Magnetometer via bypass mode                                        */
+/*                                                                     */
+/* The AK09916 sits on the ICM's internal auxiliary I2C bus. Instead   */
+/* of driving it through the ICM's I2C master (which has proven        */
+/* unreliable at startup), BYPASS_EN wires that bus straight through   */
+/* to the main SDA/SCL pins, and the STM32 talks to the AK09916        */
+/* directly at address 0x0C. Simpler, and every failure is visible.    */
+/* ------------------------------------------------------------------ */
 
+#define ICM_REG_INT_PIN_CFG     0x0F   /* bank 0 */
+#define INT_PIN_CFG_BYPASS_EN   0x02
+#define AK_ADDR                 (AK09916_ADDR << 1)
 
-
-/* Read one byte from an AK09916 register through the ICM's I2C master. */
-static uint8_t mag_read_byte(uint8_t reg)
+/* Disable the ICM master and open the bypass switches. */
+static void mag_bypass_enable(void)
 {
   icm_bank(3);
-  icm_write(ICM_REG_I2C_SLV0_ADDR, AK09916_ADDR | 0x80); /* read mode */
-  icm_write(ICM_REG_I2C_SLV0_REG,  reg);
-  icm_write(ICM_REG_I2C_SLV0_CTRL, 0x81);
+  icm_write(ICM_REG_I2C_SLV0_CTRL, 0x00);      /* no slave slots active */
   icm_bank(0);
+  icm_write(ICM_REG_USER_CTRL, 0x00);          /* master off */
+  icm_write(ICM_REG_INT_PIN_CFG, INT_PIN_CFG_BYPASS_EN);
   HAL_Delay(10);
-  return icm_read_reg(ICM_REG_EXT_SLV_DATA);
+}
+
+static bool ak_write(uint8_t reg, uint8_t val)
+{
+  return HAL_I2C_Mem_Write(bus, AK_ADDR, reg, I2C_MEMADD_SIZE_8BIT, &val, 1, 100) == HAL_OK;
+}
+static bool ak_read(uint8_t reg, uint8_t *buf, uint16_t n)
+{
+  return HAL_I2C_Mem_Read(bus, AK_ADDR, reg, I2C_MEMADD_SIZE_8BIT, buf, n, 100) == HAL_OK;
 }
 
 bool icm20948_mag_init(void)
 {
+  mag_ready = false;
+  mag_bypass_enable();
 
-  /* Reset the I2C master first, in case it's wedged from a prior run. */
-  icm_bank(0);
-  icm_write(ICM_REG_USER_CTRL, 0x02);          /* I2C_MST_RST */
+  if (HAL_I2C_IsDeviceReady(bus, AK_ADDR, 3, 50) != HAL_OK)
+  {
+    printf("AK09916 diag: nothing at 0x0C in bypass mode\r\n");
+    return false;
+  }
+
+  uint8_t wia = 0;
+  if (!ak_read(AK09916_REG_WIA2, &wia, 1) || wia != 0x09)
+  {
+    printf("AK09916 diag: 0x0C answers but WIA=0x%02X (want 0x09)\r\n", wia);
+    return false;
+  }
+
+  ak_write(AK09916_REG_CNTL3, 0x01);           /* soft reset */
   HAL_Delay(100);
-
-  /* Turn on the ICM's internal I2C master. */
-  icm_bank(0);
-  icm_write(ICM_REG_USER_CTRL, 0x20);          /* I2C_MST_EN */
-  icm_bank(3);
-  icm_write(ICM_REG_I2C_MST_CTRL, 0x07);       /* ~345 kHz master clock */
-  icm_bank(0);
-  HAL_Delay(50);
-
-  
-
-  /* Ask the magnetometer who it is. The master needs a moment after
-   * being enabled, so retry rather than failing on the first attempt. */
-   bool found = false;
-   for (int i = 0; i < 10 && !found; i++)
-   {
-     HAL_Delay(20);
-     found = (mag_read_byte(AK09916_REG_WIA2) == 0x09);
-   }
-   if (!found) return false;
-
-  mag_write(AK09916_REG_CNTL3, 0x01);          /* soft reset */
-  HAL_Delay(100);
-  mag_write(AK09916_REG_CNTL2, 0x08);          /* continuous, 100 Hz */
+  ak_write(AK09916_REG_CNTL2, 0x08);           /* continuous, 100 Hz */
   HAL_Delay(10);
 
-  /* Now park SLV0 on a continuous 9-byte read starting at ST1:
-   * ST1, HXL, HXH, HYL, HYH, HZL, HZH, TMPS, ST2.
-   * The ICM refreshes EXT_SLV_SENS_DATA automatically from here on. */
-  icm_bank(3);
-  icm_write(ICM_REG_I2C_SLV0_ADDR, AK09916_ADDR | 0x80);
-  icm_write(ICM_REG_I2C_SLV0_REG,  AK09916_REG_ST1);
-  icm_write(ICM_REG_I2C_SLV0_CTRL, 0x89);      /* enable, 9 bytes */
-  icm_bank(0);
-  return true;
-}
+  uint8_t mode = 0;
+  if (!ak_read(AK09916_REG_CNTL2, &mode, 1) || mode != 0x08)
+  {
+    printf("AK09916 diag: CNTL2 readback 0x%02X (want 0x08)\r\n", mode);
+    return false;
+  }
 
-static void mag_rearm(void)
-{
-  icm_bank(0);
-  icm_write(ICM_REG_USER_CTRL, 0x02);   /* I2C_MST_RST */
-  icm_write(ICM_REG_USER_CTRL, 0x20);   /* re-enable master */
-  icm_bank(3);
-  icm_write(ICM_REG_I2C_SLV0_ADDR, AK09916_ADDR | 0x80);
-  icm_write(ICM_REG_I2C_SLV0_REG,  AK09916_REG_ST1);
-  icm_write(ICM_REG_I2C_SLV0_CTRL, 0x89);
-  icm_bank(0);
+  mag_ready = true;
+  return true;
 }
 
 bool icm20948_mag_read(icm20948_mag_t *out)
 {
-  static uint8_t last[6];
-  static int same = 0;
+  static int fails = 0;
 
+  if (!mag_ready) return false;
+
+  /* ST1, HXL, HXH, HYL, HYH, HZL, HZH, TMPS, ST2. Reading through ST2
+   * is required: it releases the data registers for the next sample. */
   uint8_t d[9];
-  if (HAL_I2C_Mem_Read(bus, ICM_ADDR, ICM_REG_EXT_SLV_DATA,
-                       I2C_MEMADD_SIZE_8BIT, d, 9, 100) != HAL_OK)
-    return false;
-  if (d[8] & 0x08) return false;
-
-  if (memcmp(d + 1, last, 6) == 0)
+  if (!ak_read(AK09916_REG_ST1, d, 9))
   {
-    if (++same >= 20)             /* ~2 s of frozen data = real stall */
+    if (++fails >= 20)                       /* ~2 s of failed reads */
     {
-      mag_rearm();
-      same = 0;
+      mag_bypass_enable();                   /* re-open the switches */
+      fails = 0;
     }
-    return false;                 /* skip this stale sample */
+    return false;
   }
-  same = 0;
-  memcpy(last, d + 1, 6);
+  fails = 0;
+
+  if (!(d[0] & 0x01)) return false;          /* ST1 DRDY clear: no new sample */
+  if (d[8] & 0x08)    return false;          /* ST2 HOFL: overflow */
 
   int16_t x = (int16_t)(d[1] | (d[2] << 8));
   int16_t y = (int16_t)(d[3] | (d[4] << 8));
@@ -163,6 +141,10 @@ bool icm20948_mag_read(icm20948_mag_t *out)
   out->mz = z * AK09916_UT_PER_LSB;
   return true;
 }
+
+/* ------------------------------------------------------------------ */
+/* IMU                                                                 */
+/* ------------------------------------------------------------------ */
 
 bool icm20948_init(I2C_HandleTypeDef *hi2c)
 {
@@ -174,6 +156,12 @@ bool icm20948_init(I2C_HandleTypeDef *hi2c)
     return false;
   if (who != ICM_WHOAMI_VAL)
     return false;
+
+  /* On a warm reset the ICM is still configured from the previous boot.
+   * Switch its I2C master off before the device reset. */
+  icm_bank(0);
+  icm_write(ICM_REG_USER_CTRL, 0x00);
+  HAL_Delay(5);
 
   icm_bank(0);
   icm_write(ICM_REG_PWR_MGMT_1, 0x80);   /* device reset */
