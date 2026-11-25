@@ -75,4 +75,5 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/icm20948.c
     Core/Src/gps.c
     Core/Src/gps_parse.c
+    Core/Src/sd.c
 )

@@ -28,6 +28,7 @@
 #include "icm20948.h"
 #include "gps.h"
 #include "gps_parse.h"
+#include "sd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -162,7 +163,6 @@ int main(void)
   MX_TIM2_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-  BSP_LED_Init(LED2);
   setvbuf(stdout, NULL, _IONBF, 0);
   printf("\r\nflight-computer boot\r\n");
 
@@ -181,6 +181,7 @@ int main(void)
   printf("BMP581  : %s\r\n", bmp581_init(&hi2c1)   ? "ok" : "FAILED");
   printf("ICM20948: %s\r\n", icm20948_init(&hi2c1) ? "ok" : "FAILED");
   printf("AK09916 : %s\r\n", icm20948_mag_init() ? "ok" : "FAILED");
+  printf("SD card : %s\r\n", sd_init(&hspi1) ? "ok" : "FAILED");
   gps_init(&huart1);
   printf("GPS     : UART interrupt armed\r\n");
   printf("Calibrating gyro, hold still...\r\n");
@@ -200,9 +201,6 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim2);
   printf("100 Hz timer started\r\n");
   /* USER CODE END 2 */
-
-  /* Initialize leds */
-  BSP_LED_Init(LED2);
 
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
@@ -309,7 +307,6 @@ int main(void)
                roll_cf, pitch_cf,
                alt_init ? alt_fused : (baro_ok ? baro.altitude_m : 0.0f));
 
-      BSP_LED_Toggle(LED2);
     }
 
     /* ---- 1 Hz: loop health ---- */
