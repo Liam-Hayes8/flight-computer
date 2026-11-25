@@ -2,6 +2,37 @@
 
 Newest first. Every work session gets an entry: **did / broke / learned / next.**
 
+## 2026-11-24 — Magnetometer moved to bypass mode, SD breakout wired
+
+**Did:** Soldered headers on the Adafruit microSD breakout, wired it to SPI1 (D13/D12/D11,
+CS on D10/PB6), enabled SPI1 in CubeMX and confirmed the regenerated build still brought
+up every sensor. Then spent the rest of the night on the magnetometer, which had started
+failing at boot. Final fix: stop using the ICM-20948's internal I2C master entirely. Set
+BYPASS_EN so the AK09916 appears on the main bus at 0x0C and read it directly with a
+9-byte I2C read from ST1 through ST2. Heading now updates on every 10 Hz telemetry line.
+
+**Broke:** AK09916 init failed on every button reset but worked after a programmer flash,
+six fails in a row. First theory was the usual one: long jumpers, bad contact. Wrong, and
+provably wrong: the gyro on the same chip was streaming fine, and the AK09916 is a second
+die inside the ICM-20948 package, so no wire on the breadboard touches its bus. Second
+theory was a warm-reset race: the ICM master still polling the mag when DEVICE_RESET hits.
+Added a clean master shutdown before reset. Still failed. Added a diagnostic that reads
+I2C_MST_STATUS on failure: WIA=0x00, status 0x00, no NACK, no arbitration loss. Rewrote
+the single-register path to use SLV4 with its DONE flag and reset-and-retry ten times, the
+way SparkFun's driver does it. TIMEOUT after 10 tries. The master was not completing a
+single transaction. My first attempt at a fix also added 80 ms of blocking delays to the
+runtime re-arm, which showed up immediately as 8 overruns every 2 s. Reverted to a
+non-blocking state machine before moving on.
+
+**Learned:** The breadboard theory in the README was wrong and I had been repeating it
+for two months. Instrument before you rewire: one printf of a status register did more
+than an hour of guessing. The old master path was also quietly bad even when it worked,
+delivering a fresh sample about once a second instead of 100 Hz; that showed up as $HDG
+printing at 1 Hz, which I had never questioned. And the overrun counter earned its keep
+again, catching my own regression within seconds.
+
+**Next:** sd.c: CMD0 handshake, then CMD8/ACMD41/CMD58, block read/write, FatFs. Fix the
+README and technical notes where they blame signal integrity for the mag.
 
 ---
 
